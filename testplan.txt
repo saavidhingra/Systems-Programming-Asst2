@@ -1,0 +1,812 @@
+﻿Assignment 2 - Test Plan
+Karan Amin
+Saavi Dhingra
+
+
+Intro:
+This test plan walks you through a series of consecutive commands and allows the reader to see how the files change and are sent over the network. The way we will structure this test plan is by listing a command and a client who will call it, and then describe how that call works and the effect it has on the client or the server. This test plan follows our WTFtest throughout its execution. Our WTFtest program uses the sleep, printf, and system function to allow the user to see what is happening. It is sufficient to just run our WTFtest and read the terminal which describes what is happening. This test plan is only supplementary and will describe in greater detail what is happening in our WTFtest. The first thing you have to do to run our test case is run make test which will build a binary from WTFtest.c. No other files will be created because every file we need for our test case will be built by WTFtest using system commands like mkdir and touch and echo straight from our C code. Begin by running ./WTFtest to start running our test cases.
+
+
+Initialization:
+WTFtest first starts off by creating 3 directories. One directory for the server repository, and two client repositories. The two client repositories will act like two clients using our git, pushing and upgrading their repositories stimulating a basic version control workflow. WTFtest then proceeds to run “make” so that the current working directory creates the WTF and WTFserver binary. Once the binaries are made, it will copy WTFserver into the server folder, and copy the WTF into each client repository.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files 
+[Server]
+        {WTFserver}
+[Client1]
+        {WTF}
+[Client2]
+        {WTF}
+
+
+Configure:
+This command is pretty straight forward and simple, it doesn’t need the server running so the server isn’t started yet. WTFtest will start by calling ./client1/WTF configure 127.0.0.1 32564 then it will run the same command but this time on client2. The reason we are configuring it to 127.0.0.1 is because that is the localhost IP address and since the server is running on the same machine, this will do. There is a slight fallback running both clients on the same machine because it messes with the server who can’t identify which client an active commit belongs to. The way we implemented how the server stores active commits is by <projectname>_<host>. Because of this if both clients commit at the same time, only one active commit is stored. This is why we need to make sure the clients are running on two seperate machines. The port number 32564 is chosen as random and has no further meaning. Once these two commands are run there will be a .Configure file in both client’s repositories storing this information.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+[Client2]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+
+
+Create:
+The next command WTFtest will run is ./client1/WTF create project1. But before it does it, it first forks() a new process and in the child process it runs execv(“./server/WTFserver”, args) with args = {“./server/WTFserver”, “32564”}. This decision turns the child process into running the server. We make sure to store the return variable since at the end of WTFtest we will use the kill(pid, SIGKILL) to kill the continuously running server. Once the server is up and running, WTFtest runs the command in the first sentence and creates project1 in the server repository and then returns the same project to the client which called it, which in this case returns the project to client1. While the server gets the command to create a project, it initializes a .Manifest and a .history file inside the project but it only sends the project with the .Manifest. This is because the client does not need to know the contents of .history, it will only know the contents when it runs the history command. This .history file keeps track of every successful push to the project and the operation performed on the file such as ‘M’, ‘A’, ‘D’. This is how the directory will look post create.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Stores 1 as its initial version
+                {.history} ->Empty
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest} -> Stores 1 as its initial version
+[Client2]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+Add:
+This command is also VERY simple, it simply adds an existing file to the manifest. Note that the file MUST exist, because putting it inside the manifest requires the file to exist so that the hash can be created. WTFtest runs a series of mkdir and touch and echo commands to create a bunch of test files we can use to demonstrate this command. It creates example.txt, a directory subdir with shakespeare.txt inside, and america.txt. It fills these files with the echo and > command. Once these files are created, it will run ./client1/WTF add project1 ./client1/project1/example.txt first. Once the command is run, the file will be added to the manifest with the correct format. A special thing to note is that when giving the filename as the fourth argument, we provided a relative path with a “./” at the beginning. The program will also work without the “./” at the beginning as well. Also a special note is that if a file is DIRECTLY under the project name, you can also just use the filename to add the file. So ./client1/WTF add project1 example.txt will also work. This ONLY works if the file is directly underneath the project, if it’s under a subdirectory in the project it will NOT work. So for example /client1/WTF add project1 shakespeare.txt WILL NOT work. You must use the relative path ./client1/WTF add project1 ./client1/project1/shakespeare.txt. WTFtest then proceeds to add america.txt and shakespeare to project1’s manifest. If the same file is added twice then the old entry for the file is removed and the new entry is put in. This only affects the manifest entry for the file if the live hash of the file has changed.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Stores 1 as its initial version
+                {.history} ->Empty
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> “1\n1 project1 ./client1/project1/america.txt hash\n1 project1 …”
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+
+
+Client1 project1‘s .Manifest Contents: (In small print to fit in one line)
+1
+1 project1 ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c
+1 project1 ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7
+1 project1 ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+
+
+
+
+
+
+Remove:
+This command is also very simple. WTF test will demonstrate this command by running ./client1/WTF remove project1 america.txt, which will project the entry for the file america.txt from the manifest. The same rules apply to input the correct format for the filename as they did for the add command. Also note that just because you used the remove command, it will not remove the file from the project folder. Remove only deletes the project from the .Manifest which effectively removes it from version control. WTFtest gives 20 seconds after running each command for the user to go and inspect the .Manifest file to truly see if the  Once remove is shown to work, it will add america.txt back into the .Manifest for future commands. The directory tree looks the exact same so we will not write it below.
+
+
+Client1 project1’s Manifest Contents: (In same print to fit all in one line) 
+1
+1 project1 ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c
+1 project1 ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+
+
+
+
+Commit:
+Once WTFtest is done demonstrating how add and remove work, it will move on to show how commit works. WTFtest will commit projects multiple times throughout this test plan. For this commit it will simply run ./client1/WTF commit project1. Once the command is run there should be a .Commit file inside project1’s folder listing all the files that need to be committed. Since the server’s version of project1 has no files, the commit will attempt to add all three files created in the previous command. This is shown by the three “A” operations in the .Commit file. This command also increases the version number of the files that the program either adds or modifies to the server project. Since every file starts off on version 1, as soon as you commit and push that file, it will automatically already be on version 2 in the server. When the server gets a commit request, it stores the commit as an active commit. It creates a file with the same contents as the .Commit on the client but the name is <projectname>_<host> which uniquely identifies which client repository that commit belongs to. This is why we can’t have two clients on the same machine because they risk both committing at the same time and the one who commits first will have their active commit replaced. Because of this please run both clients on two different machines with unique IP addresses so that these pitfalls are not exposed.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Stores 1 as its initial version
+                {.history} ->Empty
+        {project1_host}->same as .Commit in client1 project1
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+                {.Commit} -> Shown below
+[Client2]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+
+
+
+
+.Commit file in client1 project1:
+2
+A ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7 2
+A ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54 2
+A ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+.Manifest file in client1 project1 (small print)
+2
+2 project1 ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c
+2 project1 ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+2 project1 ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7
+
+
+
+
+Push:
+Now that client1 has an active commit ready to go, this is the perfect time to show the push command. WTFtest after committing runs the push command ./client1/WTF push project1. When the server gets the push command it takes the .Commit from the client and compares it with the active commit it has stored, if they are both the same, it starts reading the file. The first line in the .Commit holds the new Version of the .Manifest (ie. incremented ) and it updates its own manifest to the new version. Then it starts reading the operations and for every A or M it requests the file from the client and overwrites its own file or creates it if it doesn’t exist. Once the push command is run, the server and client manifest should look exactly the same. Also on a push all the operations performed are stored in the .history file in that project. This helps us when we run the history command later. On a successful push, it duplicates the old project and appends the old version name like such <projectname>_<oldversion>. Since the .Manifest version is going from 1 to 2, once the push is done there will be a folder project1_1 which holds the state of the project before pushing. The .Commit file in project1 in client1 is then deleted. Let us show the directory tree and .history file post push. 
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as client1 project1’s manifest
+                {.history} ->Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+        [project1_1]->same as project1 before pushing
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+
+
+Server’s project1 .history file:
+Manifest version: 2
+A ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7 2
+A ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54 2
+A ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+Checkout:
+Once WTFtest has successfully shown our commit and push work, it will proceed to show how checkout works. This is where client2 makes it debut by running ./client2/WTF checkout project1. When the server first gets the checkout command, it searches through it’s manifest for the project specified and every file listed inside it sends over the socket to the client. The client then takes the file path given and creates all the directories and subdirectories needed to create the same file path in it’s own project folder. Once all the files have been created it fills them with the same data as the files on the server’s project. As mentioned above the server only sends files it has listed in it’s manifest. To showcase that it won’t send files that aren’t in the manifest, WTFtest will create a file called dontsend.txt and put it inside project1 in the server before running the checkout command. Once the checkout command is run by client2 by WTFtest the directory will look like this. Note that dontsend.txt has not been copied over, indicating that checkout has worked as intended.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as client1 project1’s manifest
+                {.history} ->Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as the one in project1 on the server
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+
+
+Commit:
+Once WTFtest makes client2 checkout project1 from the server, it will attempt to do some changes to the project and then proceed to commit those changes to the server. What it will do is that WTFtest will add a file called justadded.txt inside [subdir] in project1 in client2’s repository and then proceed to add it to the .Manifest. When commiting this will give the ‘A’ (add) operation to the .Commit file. WTFtest also changes the text in america.txt to “Canada is the best country”. This change will give the ‘M’ (modify) operation to the .Commit file. Lastly it removes example.txt from the .Manifest inside client2's project1 with the remove command. This change will write the ‘D’ (delete) operation to the .Commit file. It will let shakespeare.txt remain the same to show that it’s file version number is not increased once commit has run. Once all the files have been added or edited WTFtest will run the command ./client2/WTF commit project1. After the commit command has run the directory tree will look like the following.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as client1 project1’s manifest
+                {.history} ->Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing
+        {project1_host} ->Same as .Commit in Client2’s project1
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+                {.Commit}->Shown below
+        {.configure}->127.0.0.1 32564
+
+
+Client2’s project1 .Manifest:
+3
+3 project1 ./client2/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97
+2 project1 ./client2/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+2 project1 ./client2/project1/subdir/justadded.txt 2b000fecdbc94d3db1f7c64b20871b78c65bcd02
+
+
+
+
+Client2’s project1 .Commit
+3
+A ./client2/project1/subdir/justadded.txt 2b000fecdbc94d3db1f7c64b20871b78c65bcd02 2
+M ./client2/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97 3
+D ./client2/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+
+
+Push:
+This section will be short because it has already been described earlier. Once the commit has been successful, WTFtest will then proceed to run ./client2/WTF push project1, so that the changes made in project1 by client2 will be stored in the main server repository. The changes we should be expecting is that justadded.txt should be created and placed inside the [subdir] folder, america.txt should be modified so that it’s contents now say “Canada is the best country”, and finally example.txt should be removed from the .Manifest on the server’s project1. The .Manifest should also be incremented to 3. In general the .Manifest should be the same as the one in client2’s project1. What also should happen is that all the operations should be recorded inside .history. After running this command the directory tree should look like the following.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Shown below
+                {.history} ->Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project1_2]->same as project1 before pushing to version 3
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Server’s project1 .Manifest:
+3
+3 project1 ./server/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97
+2 project1 ./server/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+2 project1 ./server/project1/subdir/justadded.txt 2b000fecdbc94d3db1f7c64b20871b78c65bcd02
+
+
+Server’s project1 .history:
+Manifest version: 2
+A ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7 2
+A ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54 2
+A ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+Manifest version: 3
+A ./client2/project1/subdir/justadded.txt 2b000fecdbc94d3db1f7c64b20871b78c65bcd02 2
+M ./client2/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97 3
+D ./client2/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+Update:
+Once client2 has committed and pushed its changes to the server, we can show how update and upgrade work by pulling those changes to client1. What we expect should happen is that america.txt will be modified from “Is the best country in the world” to “Canada is the best country”, justadded.txt should be added to client1’s project1, and example.txt should be deleted from its .Manifest. Before updating though, WTFtest shows us how a conflict would interrupt update. It will show how conflicts work by modifying america.txt to “changed”. Changing america.txt makes it so that its live hash is different from the hash stored in client1’s project1 .Manifest. Once america.txt has been changed WTFtest will run ./client1/WTF update project1. We expect to see that conflict written to a .Conflict file inside client1’s project1. The directory post update command looks like this. 
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as before
+                {.history} ->Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project1_2]->same as project1 before pushing to version 3
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “changed”
+                {example.txt} -> “random text in here”
+                {.Conflict}-> Shown below
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Client1’s project1 .Conflict:
+C ./client1/project1/america.txt 8eea752d10b48b86108dcdcd5911f8d51c749921
+
+
+
+
+
+
+Update (part2)
+Now that we showed how a conflict is created by editing a file you are trying to pull changes to from the server, we can move on to show how a successful update works. WTFtest proceeds to change america.txt back to what it was before as ”Is the best country in the world” so that the live hash and the hash stored inside client1’s project1 .Manifest match. Now that everything is good to go, WTFtest will run ./client1/WTF update project1, and this time we expect to see no conflicts. What we expect to see is a .Update file which shows that we need to modify (M) america.txt, add (A) justadded.txt, and delete (D) example.txt from client1’s project1 .Manifest. Once the command is run the directory tree will look like this.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as before
+                {.history} ->Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project1_2]->same as project1 before pushing to version 3
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+                {.Update}-> Shown below
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Client1’s project1 .Update file:
+3
+M ./client1/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97 3
+D ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+A ./client1/project1/subdir/justadded.txt 2b000fecdbc94d3db1f7c64b20871b78c65bcd02 2
+
+
+
+
+
+
+Upgrade:
+Now that we have a .Update file, we can finally try and upgrade client1’s project1 so that it matches the server. WTFtest will proceed to run the command ./client1/WTF upgrade project1. It will read the first line in the .Update file which will hold the new version number we want our client .Manifest to become, in this case it will be upgraded to version 3. Then for every next line in the .Update file if it is a A or a M it will request the file from the server and create the directory tree needed to create the file if the file path does not exist. Once all the files that need to be (A) or (M) are created or opened, the client will request all the bytes so that it can upgrade those files so that they match the files on the server project. Once upgrade is run we expect to see america.txt changed from “Is the best country in the world” to “Canada is the best country”, justadded.txt to be added under [subdir] with the contents “nothing important in here”, and example.txt to be deleted from the .Manifest in client1’s project1. Once the upgrade is done, the .Update file should be deleted. After the command is run we should expect the directory tree to look like this.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as before
+                {.history} ->Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project1_2]->same as project1 before pushing to version 3
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt} ->”nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Client1’s project1 .Manifest file:
+3
+2 project1 ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+3 project1 ./client1/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97
+2 project1 ./client1/project1/subdir/justadded.txt 2b000fecdbc94d3db1f7c64b20871b78c65bcd02
+
+
+
+
+
+
+Currentversion:
+This command is pretty straight forward. It asks the server to open its .Manifest for the specified project and send over all the files it has listed (ie. all the files under version control), then the client will simply print it out to stdout. Before running the currentversion command, WTFtest will edit some files and will proceed to commit and push those changes to the server. While this is not technically necessary for this command, it will be valuable when showcasing how the history and rollback commands work. WTFtest will change justadded.txt from “nothing important in here” to “Very important stuff in here” and will commit and push those changes to the server. We will not describe the commit and push in more detailed as we have already talked about how it works earlier. Once it has committed and pushed the newly edited justadded.txt file we expect its file version to be incremented in both the server and client1’s project1 .Manifest. We also expect the .Manifest version to be incremented to 4 on both the server and client’s project1 .Manifest. The successful push will also create project1_3 which will be helpful later in rollback showcasing how rollback will delete versions higher than the one specified. WTFtest will proceed to showcase how currentversion works by running ./client1/WTF currentversion project1. Current version doesn’t produce any files but we will still show the directory tree post committing and pushing justadded.txt. Under the tree we will show the output of currentversion.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as the one in client1’s project1 .Manifest
+                {.history} ->Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Very important stuff in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project1_2]->same as project1 before pushing to version 3
+        [project1_3]->same as project1 before pushing to version 4
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt} ->”Very important stuff in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Server’s project1 .history file:
+Manifest version: 2
+A ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7 2
+A ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54 2
+A ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+Manifest version: 3
+A ./client2/project1/subdir/justadded.txt 2b000fecdbc94d3db1f7c64b20871b78c65bcd02 2
+M ./client2/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97 3
+D ./client2/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+Manifest version: 4
+M ./client1/project1/subdir/justadded.txt 8e633abb4aeebe7d306e367fbdd85189dd740b3c 3
+
+
+
+
+
+
+Client1’s project1 .Manifest file:
+4
+2 project1 ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+3 project1 ./client1/project1/america.txt ed7e9d5e522482aec0ec6415c0b6b90824710f97
+3 project1 ./client1/project1/subdir/justadded.txt 8e633abb4aeebe7d306e367fbdd85189dd740b3c
+
+
+
+
+
+
+Output of currentversion sent to stdout in client1:
+List of files under project project1
+File Version = [3], File path = [./server/project1/america.txt]
+File Version = [2], File path = [./server/project1/subdir/shakespeare.txt]
+File Version = [3], File path = [./server/project1/subdir/justadded.txt]
+
+
+
+
+History:
+The history command is also very simple and short, and so we will keep it that way while describing it. The command simply asks the server for its .history file stored inside the project specified. The client will take this and output the result to stdout. It is as simple as that. WTFtest will showcase this command by running ./client2/WTF history project1. We use client2 here because it hasn’t seen as much love and attention as client1 but in actuality it doesn’t matter which client calls this because every client will get the same output. The directory tree remains the same as before so we will not show it below, but we will show the output of the history command below.
+
+
+Output of history send to stdout in client2:
+project1's History
+Manifest version 2
+A ./client1/project1/america.txt
+A ./client1/project1/subdir/shakespeare.txt
+A ./client1/project1/example.txt
+
+
+Manifest version 3
+A ./client2/project1/subdir/justadded.txt
+M ./client2/project1/america.txt
+D ./client2/project1/example.txt
+
+
+Manifest version 4
+M ./client1/project1/subdir/justadded.txt
+
+
+
+
+Rollback:
+This is the last unique command we have yet to show. If you notice in all the previous successful pushes a backup folder was created which stores the state of the project before pushing all the new files in. This command will use all those backup folders of projects to roll back to the version desired. At this moment we have done 3 successful pushes to the main server for project1, which means there should be project1_1, project1_2, and project_3 inside the server’s repository. WTFtest will also create “fake” backups of non existing projects to demonstrate that the rollback command will leave other project’s backups alone. WTFtest will create the empty backup folder project2_2  to illustrate this behavior. The version we want to roll back to is version 2 for project1. This will create the situation where the command will delete project1_3 but leave all the other backups intact, especially project1_1 because that backup is older therefore must be preserved. WTFtest will run the command ./client2/WTF rollback project1 2. Below we show the directory tree before and after doing the rollback.
+
+
+Before;
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as the one in client1’s project1 .Manifest
+                {.history} ->Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Very important stuff in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project1_2]->same as project1 before pushing to version 3
+        [project1_3]->same as project1 before pushing to version 4
+        [project2_2] -> Not actually a “true” backup, just here to be left alone
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt} ->”Very important stuff in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+After:
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Shown below
+                {.history} ->Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project2_2]-> Not actually a “true” backup, just here to be left alone
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt} ->”Very important stuff in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Server’s project1 .Manifest file post roll back:
+2
+2 project1 ./server/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7
+2 project1 ./server/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+2 project1 ./server/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c
+
+
+Server’s project1 .history file post roll back:
+Manifest version: 2
+A ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7 2
+A ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54 2
+A ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c 2
+
+
+Update and Upgrade:
+Just to make use of the new roll backed version of project1, we will update and upgrade client1’s project1 so that it matches the server’s project1. Right now client1’s project1 is on version 4, which we need to fix and get back on version 2 and in sync with the server. After we update and upgrade, we should expect the state of the project in client1 to be the same as right before we committed and pushed to the server for the first time in client1. WTFtest will update and upgrade simulately and the result of the two commands will produce the directory tree shown below.
+
+
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as before
+                {.history} ->Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project2_2]-> Not actually a “true” backup, just here to be left alone
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Client1’s project1 .Manifest file:
+2
+2 project1 ./client1/project1/subdir/shakespeare.txt 083f7af2b6f08dd7e9de474fb52649e038605a54
+2 project1 ./client1/project1/america.txt 10ea64c39c8fabd634ef4289d58bde3467ac84c7
+2 project1 ./client1/project1/example.txt a707831254a9d49c7acb9e772f2edd4d4882fe1c
+
+
+
+
+Destroy:
+This is the final command WTFtest will demonstrate. It is fairly simple and straightforward. WTFtest will call ./client2/WTF destroy project1 which will destroy project1 on the server. Before it does that though, the command also deletes any active commits for that project, so to demonstrate that behavior WTF also creates a “fake” active commit called project1_127.0.0.1 to make sure that destroy deletes that commit. Once the command is run the directory tree looks like below.
+
+
+Before:
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1]
+                {.Manifest} -> Same as before
+                {.history} ->Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+                {dontsend.txt}-> “Please don’t send me”
+        [project1_1]->same as project1 before pushing to version 2
+        [project2_2]-> Not actually a “true” backup, just here to be left alone
+        {project1_127.0.0.1} ->fake commit
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+After:
+Directory Tree: Names in [...] identify directories, Names in {...} identify files, 
+[Server]
+        {WTFserver}
+        [project1_1]->same as project1 before pushing to version 2
+        [project2_2]-> Not actually a “true” backup, just here to be left alone
+[Client1]
+        {WTF}
+        {.configure}->127.0.0.1 32564
+        [project1]
+                {.Manifest}-> Shown below
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                {america.txt} -> “Is the best country in the world”
+                {example.txt} -> “random text in here”
+[Client2]
+        {WTF}
+        [project1]
+                {.Manifest}-> Same as before
+                [subdir]
+                        {shakespeare.txt}->”Once upon a time there was a Romeo and Juliet
+                        {justadded.txt}-> “Nothing important in here”
+                {america.txt} -> “Canada is the best country”
+                {example.txt} -> “random text in here”
+        {.configure}->127.0.0.1 32564
+
+
+Thank You:
+Thank you for sticking through this text plan showcasing every command and how each command influences the next one. A full demonstration of this test plan is showcased live when you run ./WTFtest.
+
+
+
+
+
+
+
+
+
+
+THE END
